@@ -1,0 +1,6 @@
+{
+  "name": "Business Glider",
+  "description": "Move Your Career. Grow Your Business.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

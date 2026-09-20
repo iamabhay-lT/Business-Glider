@@ -1,23 +1,24 @@
 'use client';
-import { useSyncExternalStore } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { useJobs, useVendors } from '@/lib/services/platform-store';
 
-const emptySubscribe = () => () => {};
-
 export default function FeaturedSections() {
-  const isMounted = useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false
-  );
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    const handle = requestAnimationFrame(() => {
+      setMounted(true);
+    });
+    return () => cancelAnimationFrame(handle);
+  }, []);
 
   const allJobs = useJobs();
   const allVendors = useVendors();
-  const jobs = isMounted ? allJobs.slice(0, 4) : [];
-  const vendors = isMounted ? allVendors.slice(0, 3) : [];
+  const jobs = mounted ? allJobs.slice(0, 4) : [];
+  const vendors = mounted ? allVendors.slice(0, 3) : [];
 
   const headingAnimation = {
     initial: { opacity: 0, x: -20 },

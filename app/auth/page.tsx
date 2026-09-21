@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, ShieldCheck, CheckCircle2, AlertCircle, Mail, Lock, User as UserIcon } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import EmailVerificationScreen from '@/components/auth/EmailVerificationScreen';
+import GoogleIcon from '@/components/auth/GoogleIcon';
 
 function AuthContent() {
   const router = useRouter();
@@ -16,6 +17,7 @@ function AuthContent() {
     signUpWithEmail,
     resetPassword,
     tempPassword,
+    signInWithGoogle,
   } = useAuth();
 
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot-password'>(() => {
@@ -26,6 +28,7 @@ function AuthContent() {
     return 'signin';
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
@@ -85,6 +88,39 @@ function AuthContent() {
       setErrorMessage('Unexpected error during sign up.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleGoogleAuth = async () => {
+    setIsGoogleLoading(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const result = await signInWithGoogle();
+      if (result.error) {
+        setErrorMessage(result.error.message || 'Google authentication failed.');
+      } else if (!result.cancelled) {
+        setSuccessMessage('Signed in with Google successfully!');
+        const redirectParam = searchParams ? searchParams.get('redirect') : null;
+        setTimeout(() => {
+          if (redirectParam) {
+            router.push(redirectParam);
+          } else if (result.isNewUser || mode === 'signup') {
+            router.push('/onboarding/role');
+          } else {
+            router.push('/explore');
+          }
+        }, 600);
+      }
+    } catch (err: any) {
+      const isCancelled = err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request';
+      if (!isCancelled) {
+        console.warn("Auth page Google sign-in:", err?.message || err);
+        setErrorMessage('Could not sign in with Google. Please try again.');
+      }
+    } finally {
+      setIsGoogleLoading(false);
     }
   };
   
@@ -198,6 +234,29 @@ function AuthContent() {
                 <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
                 <span>{successMessage}</span>
               </div>
+            )}
+
+            {mode !== 'forgot-password' && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleGoogleAuth}
+                  disabled={isGoogleLoading || isLoading}
+                  className="w-full flex items-center justify-center gap-3 py-3.5 px-4 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-700 text-sm font-semibold rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                  id="google-auth-btn-page"
+                >
+                  <GoogleIcon className="w-4 h-4 shrink-0" />
+                  <span>{isGoogleLoading ? 'Connecting to Google...' : 'Continue with Google'}</span>
+                </button>
+
+                <div className="relative flex items-center justify-center my-5">
+                  <div className="border-t border-slate-200 w-full" />
+                  <span className="bg-white px-3 text-xs text-slate-400 font-medium shrink-0 uppercase tracking-wider">
+                    or
+                  </span>
+                  <div className="border-t border-slate-200 w-full" />
+                </div>
+              </>
             )}
 
             {mode === 'signin' && (

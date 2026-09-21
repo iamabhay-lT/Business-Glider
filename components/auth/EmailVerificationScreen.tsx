@@ -57,7 +57,7 @@ export default function EmailVerificationScreen({
       setShowPasswordPrompt(false);
       setPromptPassword('');
     } catch (error: any) {
-      console.error('Failed to resend verification email:', error);
+      console.warn('Resend verification note:', error?.message || error);
       setMessage({
         type: 'error',
         text: error.message || 'Failed to resend verification email. Please try again.',

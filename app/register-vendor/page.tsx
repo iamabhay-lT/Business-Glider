@@ -69,7 +69,8 @@ export default function RegisterVendorPage() {
       return;
     }
 
-    if (!currentUser.emailVerified) {
+    const isGoogle = Boolean(currentUser.providerData?.some((p) => p.providerId === 'google.com'));
+    if (!currentUser.emailVerified && !isGoogle) {
       setValidationError('Email Verification Required. Please verify your email first.');
       return;
     }
@@ -142,7 +143,7 @@ export default function RegisterVendorPage() {
       setRegisteredVendorId(newVendor.id);
       setRegistrationSuccess(true);
     } catch (err: any) {
-      console.error('Registration error:', err);
+      console.warn('Registration note:', err?.message || err);
       setValidationError(err?.message || 'Failed to register vendor profile. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -205,7 +206,7 @@ export default function RegisterVendorPage() {
               </Link>
             </div>
           </div>
-        ) : !firebaseUser.emailVerified ? (
+        ) : (!firebaseUser.emailVerified && !firebaseUser.providerData?.some((p) => p.providerId === 'google.com')) ? (
           /* State C: Email Unverified Fallback */
           <div className="max-w-md mx-auto">
             <EmailVerificationScreen

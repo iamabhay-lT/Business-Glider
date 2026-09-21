@@ -52,7 +52,7 @@ function ForgotPasswordContent() {
       await sendPasswordResetEmail(auth, trimmedEmail);
       setSuccess(trimmedEmail);
     } catch (err: any) {
-      console.error("Firebase reset password error:", err);
+      console.warn("Firebase reset password note:", err?.code || err?.message || err);
       if (err.code === 'auth/too-many-requests') {
         setError('Too many requests. Please try again later.');
       } else if (err.code === 'auth/invalid-email') {

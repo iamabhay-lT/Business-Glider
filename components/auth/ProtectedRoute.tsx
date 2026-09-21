@@ -81,7 +81,8 @@ export default function ProtectedRoute({
     );
   }
 
-  if (!firebaseUser.emailVerified) {
+  const isGoogle = Boolean(firebaseUser.providerData?.some((p) => p.providerId === 'google.com'));
+  if (!firebaseUser.emailVerified && !isGoogle) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center p-6">
         <div className="max-w-md w-full mx-auto">

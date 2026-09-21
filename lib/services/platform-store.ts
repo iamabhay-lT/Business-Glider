@@ -599,7 +599,7 @@ export const PlatformStore = {
     };
 
     const stored = safeGetItem<UserProfile>(PROFILE_KEY, emptyProfile);
-    if (!stored || stored.id === 'usr-default' || stored.email === 'abhaytiger1234@gmail.com') {
+    if (!stored || stored.id === 'usr-default') {
       return emptyProfile;
     }
     return stored;

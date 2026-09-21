@@ -15,10 +15,38 @@ import {
   sendPasswordResetEmail,
   sendEmailVerification,
   deleteUser,
+  GoogleAuthProvider,
+  signInWithPopup,
+  getAdditionalUserInfo,
   User
 } from 'firebase/auth';
 import { X, ShieldCheck, CheckCircle2, AlertCircle, Mail, Lock, User as UserIcon, ArrowRight } from 'lucide-react';
 import EmailVerificationScreen from '@/components/auth/EmailVerificationScreen';
+import GoogleIcon from '@/components/auth/GoogleIcon';
+
+function formatGoogleAuthError(error: any): string | null {
+  if (!error) return null;
+  const code = error.code || '';
+  if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+    return null;
+  }
+  if (code === 'auth/popup-blocked') {
+    return 'Popup was blocked by your browser. Please allow popups for this site and try again.';
+  }
+  if (code === 'auth/account-exists-with-different-credential') {
+    return 'An account already exists with this email address. Please sign in with your email and password.';
+  }
+  if (code === 'auth/network-request-failed') {
+    return 'Network error occurred. Please check your internet connection and try again.';
+  }
+  if (code === 'auth/unauthorized-domain') {
+    return 'This domain is not authorized for Google sign-in. Please contact support or use email and password.';
+  }
+  if (code === 'auth/operation-not-allowed') {
+    return 'Google sign-in is not enabled in Firebase Authentication. Please use email and password.';
+  }
+  return 'Could not sign in with Google. Please try again or use email and password.';
+}
 
 export interface AuthContextType {
   user: UserProfile | null;
@@ -50,7 +78,7 @@ export interface AuthContextType {
   updatePassword: (password: string) => Promise<{ error: any }>;
   deleteAccount: () => Promise<{ error: any }>;
   loginAsDemo: (role?: UserRole) => void;
-  signInWithGoogle: () => Promise<{ error: any }>;
+  signInWithGoogle: () => Promise<{ error: any; isNewUser?: boolean; cancelled?: boolean; user?: User }>;
   signInWithFacebook: () => Promise<{ error: any }>;
   sendPhoneOtp: (phone: string) => Promise<{ error: any }>;
   verifyPhoneOtp: (phone: string, token: string) => Promise<{ error: any }>;
@@ -73,6 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState<string | null>(null);
   
@@ -82,8 +111,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
-        // Reject unverified users immediately on state changes
-        if (!fbUser.emailVerified) {
+        // Check if provider is Google
+        const isGoogleProvider = Boolean(
+          fbUser.providerData?.some((p) => p.providerId === 'google.com')
+        );
+        // Reject unverified users immediately on state changes (except Google users)
+        if (!fbUser.emailVerified && !isGoogleProvider) {
           await firebaseSignOut(auth);
           setFirebaseUser(null);
           setUser(null);
@@ -105,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       setIsLoading(false);
     }, (err) => {
-      console.error("Auth state error:", err);
+      console.warn("Auth state observer:", err?.message || err);
       setIsLoading(false);
     });
 
@@ -128,13 +161,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const openRoleSelect = () => setRoleModalOpen(true);
   const closeRoleSelect = () => setRoleModalOpen(false);
 
-  const handleLoginSuccess = (userRole?: UserRole) => {
+  const handleLoginSuccess = (userRole?: UserRole, isNewUser?: boolean) => {
     setLoginModalOpen(false);
     const currentRole = userRole || user?.role || 'job_seeker';
     
     if (redirectAfterAuth) {
       router.push(redirectAfterAuth);
       setRedirectAfterAuth(null);
+    } else if (isNewUser) {
+      router.push('/onboarding/role');
     } else {
       if (currentRole === 'job_seeker') {
         router.push('/dashboard/job-seeker');
@@ -162,8 +197,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Send/resend verification email
           try {
             await sendEmailVerification(authenticatedUser);
-          } catch (resendError) {
-            console.error("Failed to auto-resend verification email in modal sign-in:", resendError);
+          } catch (resendError: any) {
+            console.warn("Verification email delivery note:", resendError?.message || resendError);
           }
 
           setTempPassword(password);
@@ -215,7 +250,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (error: any) {
-      console.error("Auth error:", error);
+      console.warn("Auth status:", error?.code || error?.message || error);
       setOtpLoading(false);
       if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
         setAuthError('Password or Email Incorrect');
@@ -247,7 +282,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    firebaseSignOut(auth).catch((e) => console.error(e));
+    firebaseSignOut(auth).catch((e) => console.warn("Logout issue:", e?.message || e));
     setUser(null);
     router.push('/explore');
   };
@@ -275,8 +310,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     try {
       await firebaseSignOut(auth);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      console.warn("Sign out note:", e?.message || e);
     }
     setUser(null);
     setFirebaseUser(null);
@@ -291,7 +326,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await signOut();
       return { error: null };
     } catch (error: any) {
-      console.error("Delete account error:", error);
+      console.warn("Delete account note:", error?.message || error);
       return { error };
     }
   };
@@ -304,8 +339,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!authenticatedUser.emailVerified) {
         try {
           await sendEmailVerification(authenticatedUser);
-        } catch (resendErr) {
-          console.error("Failed to auto-resend verification email:", resendErr);
+        } catch (resendErr: any) {
+          console.warn("Auto-resend verification email note:", resendErr?.message || resendErr);
         }
         setTempPassword(passwordInput);
         await firebaseSignOut(auth);
@@ -323,7 +358,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setTempPassword(null);
       return { error: null };
     } catch (error: any) {
-      console.error("Sign in error:", error);
+      console.warn("Sign in note:", error?.code || error?.message || error);
       let friendlyError = error;
       if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
         friendlyError = new Error('Password or Email Incorrect');
@@ -350,7 +385,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       return { error: null, needsVerification: true, email: emailInput };
     } catch (error: any) {
-      console.error("Sign up error:", error);
+      console.warn("Sign up note:", error?.code || error?.message || error);
       let friendlyError = error;
       if (error.code === 'auth/email-already-in-use') {
         friendlyError = new Error('User already exists. Sign in?');
@@ -366,7 +401,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await sendPasswordResetEmail(auth, emailInput);
       return { error: null };
     } catch (error: any) {
-      console.error("Reset password error:", error);
+      console.warn("Reset password note:", error?.message || error);
       return { error };
     }
   };
@@ -378,7 +413,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return { error: null };
     } catch (error: any) {
-      console.error("Update password error:", error);
+      console.warn("Update password note:", error?.message || error);
       return { error };
     }
   };
@@ -387,8 +422,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     selectRole(demoRole);
   };
 
-  const signInWithGoogle = async () => {
-    return { error: new Error('Google sign-in is disabled. Please use Email and Password.') };
+  const signInWithGoogle = async (): Promise<{ error: any; isNewUser?: boolean; cancelled?: boolean; user?: User }> => {
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      const userCredential = await signInWithPopup(auth, provider);
+      const authenticatedUser = userCredential.user;
+      const additionalInfo = getAdditionalUserInfo(userCredential);
+      const isNewUser = Boolean(additionalInfo?.isNewUser);
+
+      if (authenticatedUser) {
+        setFirebaseUser(authenticatedUser);
+        const localProfile = PlatformStore.getUserProfile();
+        const updated = PlatformStore.saveUserProfile({
+          id: authenticatedUser.uid,
+          email: authenticatedUser.email || localProfile.email || '',
+          fullName: authenticatedUser.displayName || localProfile.fullName || '',
+        });
+        setUser(updated);
+        setTempPassword(null);
+        return { error: null, isNewUser, user: authenticatedUser };
+      }
+      return { error: null, isNewUser: false };
+    } catch (error: any) {
+      const isCancelled = error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request';
+      if (!isCancelled) {
+        console.warn("Google sign-in could not be completed:", error?.message || error);
+      }
+      const friendlyMsg = formatGoogleAuthError(error);
+      if (friendlyMsg) {
+        return { error: new Error(friendlyMsg), isNewUser: false };
+      }
+      return { error: null, cancelled: true, isNewUser: false };
+    }
+  };
+
+  const handleGoogleAuth = async () => {
+    setAuthError(null);
+    setAuthSuccess(null);
+    setGoogleLoading(true);
+
+    try {
+      const result = await signInWithGoogle();
+      if (result.error) {
+        setAuthError(result.error.message || 'Google authentication failed.');
+      } else if (!result.cancelled) {
+        setAuthSuccess('Signed in with Google successfully!');
+        setTimeout(() => {
+          setGoogleLoading(false);
+          handleLoginSuccess(undefined, result.isNewUser);
+        }, 600);
+        return;
+      }
+    } catch (err: any) {
+      const isCancelled = err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request';
+      if (!isCancelled) {
+        console.warn("Modal Google auth:", err?.message || err);
+      }
+      const msg = formatGoogleAuthError(err);
+      if (msg) setAuthError(msg);
+    } finally {
+      setGoogleLoading(false);
+    }
   };
 
   const signInWithFacebook = async () => {
@@ -498,6 +593,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     <span>{authSuccess}</span>
                   </div>
                 )}
+
+                {/* Continue with Google */}
+                <button
+                  type="button"
+                  onClick={handleGoogleAuth}
+                  disabled={googleLoading || otpLoading}
+                  className="w-full mb-4 flex items-center justify-center gap-3 py-3 px-4 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-700 text-xs font-semibold rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                  id="google-auth-btn-modal"
+                >
+                  <GoogleIcon className="w-4 h-4 shrink-0" />
+                  <span>{googleLoading ? 'Connecting to Google...' : 'Continue with Google'}</span>
+                </button>
+
+                <div className="relative flex items-center justify-center mb-4">
+                  <div className="border-t border-slate-100 w-full" />
+                  <span className="bg-white px-3 text-[11px] text-slate-400 font-medium shrink-0 uppercase tracking-wider">
+                    or
+                  </span>
+                  <div className="border-t border-slate-100 w-full" />
+                </div>
 
                 <form onSubmit={handleEmailAuth} className="space-y-4">
                   {authMode === 'signup' && (
